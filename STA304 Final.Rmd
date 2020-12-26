@@ -1,0 +1,187 @@
+---
+title: The effect of having marital partner on life satisfaction, without the effect
+  of other factors by using propensity score matching
+author: "Mengying Li"
+date: "Dec.25, 2020"
+output:
+  word_document: default
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(knitr)
+
+setwd("/Users/zimuli/Downloads")
+feelings_data <- read.csv("feelings_data.csv")
+
+#convert to factor or numeric
+feelings_data$feelings_life<-as.numeric(feelings_data$feelings_life)
+feelings_data$marital_status<-as.factor(feelings_data$marital_status)
+feelings_data$sex<-as.factor(feelings_data$sex)
+feelings_data$education<-as.factor(feelings_data$education)
+feelings_data$income_respondent<-as.factor(feelings_data$income_respondent)
+feelings_data$children_in_household<-as.factor(feelings_data$children_in_household)
+feelings_data$has_partner<-as.factor(feelings_data$has_partner)
+
+
+```
+
+Code and data supporting this analysis is available at: https://github.com/mengying-li23/sta304-final
+
+
+# Abstract
+
+
+# Keywords: marriage, common-law, partner, life, satisfaction, well-being, propensity score
+
+
+# Introduction
+
+
+
+# Methodology
+## Data
+The dataset was obtained from the 2017 General Social Survey (GSS) which is available on chass in Utoronto library was conducted from February 2$^{nd}$ to November 30$^h$. 
+ According to Li, Zhang and Huan (ps 2020), The survey was distributed through phone calls. The target population is people who live in Canada aged 15 and above while residents in Yukon Northwest Territories, Nunavut and full-time residents of institutions were excluded. The frame is the list of telephone numbers in use that were available on Statistics Canada and the list of all dwellings on Address Register. The approach GSS used to collect the data is stratified sampling, where every record in the frame was allocated to a stratum within its province, then a simple random sampling without replacement was performed within those strata. Among the phone number list, 91.8% of them reach eligible households that have at least one person who was aged 15 and above. The sample population was 20,602, where 52.4% of the phone call survey was responded to. There were three stages of adjustments for non-responses based on the amount of auxiliary information of the phone number available in Statistics Canada and weight for responding telephone numbers would be adjusted accordingly. The dataset is comprehensive, including most variables that were related to the target population's well-being, satisfying the aim of this report which is to investigate the effect of individuals' marital status on their life satisfaction. Using stratified sampling, enable the data is well-presenting Canada's major areas without some areas are over-represented or under-represented. Also, the dataset is the latest version available, which is great for our study. However, since some questions and options in the survey might be misleading and caused some non-response.
+
+This report is interested in one topic, namely: whether respondent’ marital status has an effect on their life satisfaction if they are having other similar traits (may also has effect on their life satisfaction). To study this topic, we reduce the whole dataset by keeping only the following variables: levels of life satisfaction (our interested outcome, which is a quantitative variable from 0 to 10 from "very dissatisfied" to "very satisfied" respectively); marital status (our treatment to see whether there is a causal relationship); age; gender; income levels (use income of the respondent instead of the household because the income of the household has relationship with marital status compared with income of the respondent, so using income of the household would compare respondents with similar income of the household, resulting underestimate the effect of marital status on the life satisfaction); education levels; number of children in the household. Variables selected is based on the results of the previous research from Li, Zhang and Huan, which has similar topic, shows that marital status, age, sex, income levels, and education levels have statistically significant relationship with life satisfaction (2020). Plus, the number of children in the household is another variable that may has relationship with marital status and life satisfaction. So, including these variables in our study is required for our model. To conduct a propensity score analysis, we need our treatment variable to be binary category variable. So, for the reduced dataset, we generated a variable show whether the respondent currently have partner to use as treatment variable to see the causal effect on the life satisfaction. This variable divides all respondents into two categories, one is currently having partner, that is, currently married or living in common law; the other is currently without a partner, including single, divorced, separated, and widowed. 
+From Table 1, we can see that most people’s life satisfaction is between 7 and 8. At the same time, in Table 2, the group of respondents who currently having partners has higher life satisfaction (range from 8 to 10), while the group of respondentss who currently without a partner is significantly lower (approximately range from 7-9). The tables shows similar results to previous report that there is a certain relationship between marital status and life satisfaction. However, previous research also suggests other factors related to life satisfaction, such as age, gender, education and so on. Therefore, in order to study whether there is a causal relationship between current marital status and life satisfaction without the effect of other factors, we need the propensity score matching approach to investigate the result.
+
+
+
+```{r fig1, fig.cap="histogram of life satisfaction"}
+
+feelings_data %>% ggplot(aes(feelings_life)) + geom_histogram()
+```
+
+```{r fig2, fig.cap="Life satisfaction of two groups"}
+
+feelings_data %>% ggplot(aes(y=feelings_life, x=has_partner)) + geom_boxplot() + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+
+
+
+
+# Model
+
+Propensity score method allow us to "eliminate the effects of confounding when using observational data to estimate treatment effects" (Austin, 2020), where confounding variables are factors that has relationship stanualtanly with treatment and outcome. In this case, since we are interested in effect of having marital partner on life satisfaction, our treatment is having partners while outcome is life satisfaction. PLus, all other variables in the reduced dataset are confounding variables. To get our model to interept, we first employing the propensity score matching to assign the treatment and compare groups using Rstudio, then conduct a multivariable linear model to including all the variables. 
+
+```{r, echo = FALSE}
+
+# creating glm model on has_partner with confounding variables
+propensity_score <- glm(has_partner ~ age + sex + education + 
+                          income_respondent + children_in_household, 
+                        family = binomial,
+                        data = feelings_data)
+
+# We will now add our forecast to our dataset.
+library(broom)
+library(arm)
+feelings_data <- 
+  augment(propensity_score, 
+          data = feelings_data,
+          type.predict = "response") %>% 
+  dplyr::select(-.resid, -.std.resid, -.hat, -.sigma, -.cooksd) 
+
+
+
+# Now we use our forecast to create matches. 
+# For every person who was actually treated we want the untreated person who
+# was considered as similar to them (based on propensity score) as possible.
+
+feelings_data <- 
+  feelings_data %>% 
+  arrange(.fitted, has_partner)
+
+
+
+# Here we're going to use a matching function from the arm package. This finds which is the closest of the ones that were not treated, to each one that was treated.
+
+feelings_data$treated <- 
+  if_else(feelings_data$has_partner == 0, 0, 1)
+
+feelings_data$treated <- 
+  as.integer(feelings_data$treated)
+
+matches <- arm::matching(z = feelings_data$treated, 
+                         score = feelings_data$.fitted)
+
+feelings_data <- cbind(feelings_data, matches)
+
+
+# Now we reduce the dataset to just those that are matched. 
+
+feelings_data_matched <- 
+  feelings_data %>% 
+  filter(match.ind != 0) %>% 
+  dplyr::select(-match.ind, -pairs, -treated)
+
+
+
+# Examining the 'effect' of being treated on life satisfaction in the 'usual' way.
+
+propensity_score_regression <- 
+  lm(feelings_life ~ age + sex + education + income_respondent + 
+       children_in_household + has_partner, 
+     data = feelings_data_matched)
+
+```
+
+To get propensity score, we need to get a logistical model on treatment with other confounding variables to get the probability. Therefore, we firstly choose has partner as our response variable, and we use a logistic regression model in Rstudio to analyze the probability of being treated. Then, we choose age, sex,income of respondent, education, number of children in the household as explanatory variables. We select these variables because they have certain relationship with martial status and life satisfaction.As previous discussed in data section, because we interested in whether currently having partner, we generate a binary new variable using the original variable marital status. The first predictor is the age which is a numeric variable, because numeric variable is more specific, and one-parameter rather than several parameters (for different categories) can save unnecessary complexity and avoiding overfitting. the second predictor sex is in binary: male and female; we will discuss the drawback of this in discussion section. Personal income is categorical instead of numeric because we want to investigate the difference in life satisfaction among people of different income levels other than a specific number. The number of children in a household only range from 0 to 2, and the majority is zero, so we keep this variable categorical in the hope of higher clarity. Education level is category variable as we collect without reducing category because we want detailed category for matching group. Using Rstudio helps us to find the matched groups where the compare group having most similar traits with the treatment group. And the matching process reduce the number of dataset to 17540 observations as the removing ones has not found matches. 
+
+After the first process, we can have a multivariable linear regression model on life satisfaction of all other variables including treatment and confounding. This model compares the treated and untreated group to have an analysis on the effect of having marital partner on life satisfaction without effect of other factors. Choosing linear regression means the outcome life satisfaction is a numeric variable. The reason behind choosing linear regression and treat life satisfaction as a quantitative variable is same for the previous research, "logistical regression only accepts the response variable with binary category while we aim for a specific numeric result on our model other than binary categories such as satisfied and dissatisfied" (Li, Zhang and Huan, 2020). 
+
+The linear regression model we are using is:
+
+
+$$ Satisfaction = \beta_0+\beta_1 Age + \beta_2 Sex_{M} + \beta_3 Ed_{col} + ... + \beta_9 In_1 + ...+\beta_{14} Ch_{one} ... + \beta_{17} Partner\\$$
+
+
+Where Satisfaction, Age, Sex, Ed and In refer to life satisfaction, age, sex, education, income of respondent, number of children in household and currently having partner, respectively.$\beta_0$ represents the intercept of this linear model, and is the value of life satisfaction when all varible is zsro (which is impossible in our model since age cannot be zero). $\beta_1$ represents the change in life satisfaction for every one-unit increase in the age of the respondent. Also, $\beta_1$ represents the change in value of life satisfaction, when the respondent is male.If the respondent is female, given other predictor unchanged, there is no change on life satisfaction. $\beta_3$ represents the change in life satisfaction, when the respondent's education level is college, CEGEP or other non-university certificate or diploma. $\beta_4$ to $\beta_8$ represents the change in life satisfaction when the respondent has other education level. Equivalently, $\beta_9$ represents the change in life satidfaction, when income of the respondent is $125,000$ and more,while $\beta_{10}$ to $\beta_{13}$ represents the change in life satisfaction when the respondent is in other income level. $\beta_{14}$ represents the change in life satisfaction, when number of children in household of the respondent is one, while $\beta_{15}$ and $\beta_{16}$ represents the change in life satisfaction when the respondent having different number of children in household. Most importantly, $\beta_{17}$ represents the change of life satisfaction when the respondent currently having partner. 
+
+
+
+
+
+# Results
+```{r, table 3, echo=FALSE}
+kable(summary.lm(propensity_score_regression)$coefficients, caption="Summary of the model", digits=3)
+```
+
+Table 3 shows a summary of the statistics of the model. With significant P values (extremely small), some categories of variables have statistical significance in this model, which indicates a large possibility of validation of our alternate hypothesis (statistical difference in the response variable). That is, all the variables except for the number of children in household: age, sex, income of the respondent, education, currently having partner or not in the model are statistically significant to predict the value of life satisfaction. 
+Our treatment variable which is has_partner1 in the model has a 0.660 estimate with an extremely small standard error and p-value (very close to zero). The estimate tells us, currently having a partner (has_partner = 1) has a statistically significant positive relationship with the outcome life satisfaction. This is consistent with the previous research. However, since our model is based on the propensity score matching and the results are driven from treated and untreated groups, our results indicate causal inferences, which for people who are currently having marital partner, they have a higher life satisfaction value of 0.66 on average than people who are not currently having marital partner. 
+
+
+
+
+# Discussion
+
+## Summary
+
+
+## Conclusions
+
+
+## Weaknesses
+
+
+
+## Next Steps
+
+
+
+
+
+# References
+
+\@ref(tab:table1)
+
+\@ref(tab:table2)
+
+\@ref(tab:table3)
+
